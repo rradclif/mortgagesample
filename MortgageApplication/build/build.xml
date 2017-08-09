@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project name="MortgageApplication" basedir="." default="MortgageApplication_build" xmlns:antdbb="antlib:com.ibm.team.dbb.ant" xmlns:ac="antlib:net.sf.antcontrib">
+    <!-- Expected passed in Ant properties:
+         <property name="WORK_DIR"/>
+         <property name="HLQ"/>
+         <property name="SRC_DIR"/>
+         <property name="DBB_URL"/>
+         <property name="DBB_ID"/>
+         <property name="DBB_PW"/>
+         <property name="BUILD_ID"/>
+         <property name="BUILD_LABEL"/>
+         
+         And one of the following properties should be passed in
+         <property name="BUILD_LIST_FILE"/>
+         <property name="BUILD_LIST_PROP"/>  
+    -->
+	
+	<!-- DBB Build Request values (JSON encoded) used to create DBB build request -->
+	<property name="BUILD_REQUEST"><![CDATA[{"buildId" : "${BUILD_ID}", "label" : "${BUILD_LABEL}"}]]></property>
+	
+	<!-- Default source PDS BPXWDYN creation options -->
+	<property name="SRC_OPTIONS" value="cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library) msg(1)"/>
+	
+	<!-- Default load module PDS BPXWDYN creation options -->
+	<property name="LOAD_OPTIONS" value="cyl space(1,1) dsorg(PO) recfm(U) blksize(32760) dsntype(library) msg(1)"/>
+	
+	<!-- Default DBB Server Authentication plan.  Values are BASIC or FORM -->
+	<property name="HTTP_AUTH" value="BASIC"/>
+	
+	<!-- Property file containing Ant properties used for allocating datasets during build -->
+	<property file="datasets.properties"/>
+	
+	<!-- Ant flag indicating that the build will input a file containing a list of programs to build -->
+	<condition property="HAS_BUILD_LIST_FILE">
+	   <isset property="BUILD_LIST_FILE"/>
+	</condition>
+	
+	<!-- Ant flag indicating that the build will input an ant property containing the name of a single program to build (used for user builds) -->
+	<condition property="HAS_BUILD_LIST_PROP">
+	   <isset property="BUILD_LIST_PROP"/>
+	</condition>
+	
+	<!-- This target outputs all of the passed in Ant properties for the build process -->
+	<target name="MortgageApplication_properties">
+		<echo>Starting the main build process for MortgageApplication</echo>
+		<echo>Passed in Ant properties:</echo>
+		<echo>WORK_DIR=${WORK_DIR}</echo>
+		<echo>HLQ=${HLQ}</echo>
+		<echo>SRC_DIR=${SRC_DIR}</echo>
+		<echo>DBB_URL=${DBB_URL}</echo>
+		<echo>DBB_ID=${DBB_ID}</echo>
+		<echo>BUILD_ID=${BUILD_ID}</echo>
+		<echo>BUILD_LABEL=${BUILD_LABEL}</echo>
+		<echo>BUILD_LIST_FILE=${BUILD_LIST_FILE}</echo>
+		<echo>BUILD_LIST_PROP=${BUILD_LIST_PROP}</echo>
+		<echo>Configured Dataset Properties (from datasets.properties):</echo>
+		<echo>MACLIB=${MACLIB}</echo>
+		<echo>SCEELKED=${SCEELKED}</echo>
+		<echo>SASMMOD1=${SASMMOD1}</echo>
+		<echo>SIGYCOMP=${SIGYCOMP}</echo>
+		<echo>SDFHMAC=${SDFHMAC}</echo>
+		<echo>SDFHLOAD=${SDFHLOAD}</echo>
+		<echo>SDFHCOB=${SDFHCOB}</echo>
+		<echo>SDSNLOAD=${SDSNLOAD}</echo>
+		<echo>BUILD_MFS=${BUILD_MFS}</echo>
+		<echo>SDFHMAC=${SDFHMAC}</echo>
+		<echo>SDFSRESL=${SDFSRESL}</echo>
+		<echo>REFERAL=${REFERAL}</echo>
+	</target>
+	
+	<!-- This target performs basic build initialization tasks: 
+	     1) Creates a build work directory
+	     2) Creates build input and output datasets
+	     3) Copies required copybooks from HFS to PDS
+	     4) Creates a DBB build request for the build  
+	     5) Uploads the list of files to build to the DBB build request           
+	-->
+	<target name="MortgageApplication_initialize" depends="MortgageApplication_properties">
+		
+        <echo>Create build directory for this build's artifacts (skips if exists)</echo>
+        <mkdir dir="${WORK_DIR}"/>  
+		
+        <echo>Create new DBB build request: ${BUILD_REQUEST}</echo>
+    	<antdbb:http url="${DBB_URL}/rest/buildRequest" authentication="${HTTP_AUTH}" userId="${DBB_ID}" password="${DBB_PW}" statusCodeProperty="CREATE_STATUS" locationProperty="DBB_BUILD_URL" forceSSLTrusted="true" method="POST" postContents="${BUILD_REQUEST}">
+    	   <antdbb:header name="Content-Type" value="application/json"/>
+    	</antdbb:http>
+		<!-- Test return HTTP status.  Fail build if bad -->
+    	<fail message="Create DBB build request failed with an HTTP status: ${CREATE_STATUS}">
+    	  <condition>
+    	  	<or>
+    	      <equals arg1="${CREATE_STATUS}" arg2="400"/>
+    	  	  <ac:isgreaterthan arg1="${CREATE_STATUS}" arg2="400"/>
+    	  	</or>	
+    	  </condition>
+    	</fail>
+		<echo>DBB build request created successfully with an HTTP status: ${CREATE_STATUS}</echo>
+		<echo>DBB build request location: ${DBB_BUILD_URL}</echo>
+		
+		<!-- Upload the list of files to build -->
+		<ac:if>
+			<!-- Check to see if the list of files to build are provided in an input file -->
+			<equals arg1="${HAS_BUILD_LIST_FILE}" arg2="true" />
+	           <ac:then>
+	    		<echo>Uploading list of files to build from file ${BUILD_LIST_FILE}</echo>
+	           	<echo>Hardcoded file will be dynamically created when impact analysis is implemented</echo>
+	        	<antdbb:http url="${DBB_BUILD_URL}/inputList" authentication="${HTTP_AUTH}" userId="${DBB_ID}" password="${DBB_PW}" statusCodeProperty="UPLOAD_STATUS" forceSSLTrusted="true" method="POST" postFile="${BUILD_LIST_FILE}">
+	        	   <antdbb:header name="Content-Type" value="text/plain"/>
+	        	</antdbb:http>
+	           	<!-- Test return HTTP status.  Fail build if bad -->
+	        	<fail message="Upload build list file failed with an HTTP status: ${UPLOAD_STATUS}">
+	        	  <condition>
+	        	  	<or>
+	        	      <equals arg1="${UPLOAD_STATUS}" arg2="400"/>
+	        	  	  <ac:isgreaterthan arg1="${UPLOAD_STATUS}" arg2="400"/>
+	        	  	</or>	
+	        	  </condition>
+	        	</fail>	
+	    		<echo>Build list file ${BUILD_LIST_FILE} was uploaded successfully with an HTTP status: ${UPLOAD_STATUS}</echo>
+	           </ac:then>
+			
+			   <ac:elseif>
+			   	<!-- Check to see if the list of files to build is provided by an input property -->
+			   	<equals arg1="${HAS_BUILD_LIST_PROP}" arg2="true" />
+			   	  <ac:then>
+					<echo>Uploading list of files to build from input property BUILD_LIST_PROP</echo>
+			    	<antdbb:http url="${DBB_BUILD_URL}/inputList" authentication="${HTTP_AUTH}" userId="${DBB_ID}" password="${DBB_PW}" statusCodeProperty="UPLOAD_STATUS" forceSSLTrusted="true" method="POST" postContents="${BUILD_LIST_PROP}">
+			    	   <antdbb:header name="Content-Type" value="text/plain"/>
+			    	</antdbb:http>
+			   	    <!-- Test return HTTP status.  Fail build if bad -->
+			    	<fail message="Upload build list property contents failed with an HTTP status: ${UPLOAD_STATUS}">
+			    	  <condition>
+			    	  	<or>
+			    	      <equals arg1="${UPLOAD_STATUS}" arg2="400"/>
+			    	  	  <ac:isgreaterthan arg1="${UPLOAD_STATUS}" arg2="400"/>
+			    	  	</or>	
+			    	  </condition>
+			    	</fail>	
+					<echo>Build list was posted successfully with an HTTP status: ${UPLOAD_STATUS}</echo>
+			   	  </ac:then>
+			   </ac:elseif>	
+			
+		</ac:if>
+        
+        <echo>Create build data sets (skips if exists) </echo>
+        <antdbb:makePDS dsn="${HLQ}.COBOL" options="${SRC_OPTIONS}"/>
+        <antdbb:makePDS dsn="${HLQ}.COPYBOOK" options="${SRC_OPTIONS}"/>
+        <antdbb:makePDS dsn="${HLQ}.OBJ" options="${SRC_OPTIONS}"/>
+		<antdbb:makePDS dsn="${HLQ}.BMS" options="${SRC_OPTIONS}"/>
+		<antdbb:makePDS dsn="${HLQ}.DBRM" options="${SRC_OPTIONS}"/>
+		<antdbb:makePDS dsn="${HLQ}.LINK" options="${SRC_OPTIONS}"/>
+		<antdbb:makePDS dsn="${HLQ}.MFS" options="${SRC_OPTIONS}"/>
+		<antdbb:makePDS dsn="${HLQ}.LOAD" options="${LOAD_OPTIONS}"/>
+		<antdbb:makePDS dsn="${HLQ}.TFORMAT" options="${LOAD_OPTIONS}"/>
+		
+		<echo>Copying copybooks from ${SRC_DIR}/MortgageApplication/**/*.cpy to ${HLQ}.COPYBOOK</echo>
+		<echo>Temporary solution until dependency awareness is implemented</echo>
+		<antdbb:copyToPDS dsn="${HLQ}.COPYBOOK">
+			<fileset dir="${SRC_DIR}">
+				<include name="MortgageApplication/**/*.cpy"/>
+			</fileset>	
+		</antdbb:copyToPDS>
+        
+
+    </target>
+	
+	<!-- This target starts the build by invoking the build script for each file type to build -->
+    <target name="MortgageApplication_build" depends="MortgageApplication_initialize">
+    	<echo>Invoking the build script for each file type to build</echo>
+    	<ant antfile="bmsProcessing.xml"/>
+		<ant antfile="cobolCompile.xml"/> 
+    	<ant antfile="cobolCompileLink.xml"/> 
+    	<ant antfile="cobolCompileCICSLink.xml"/>
+    	<ant antfile="cobolCompileCICSDB2Link.xml"/>
+    	<ant antfile="linkEdit.xml"/>
+        
+    	<!-- only build IMS MFS module if BUILD_MFS property is set to true (located in datasets.properties) -->
+    	<ac:if>
+           <equals arg1="${BUILD_MFS}" arg2="true" />
+           <ac:then>
+           	 <echo>Detected IMS MFS Build flag set to true</echo>
+             <ant antfile="mfsgenUtility.xml"/>
+           </ac:then>
+        </ac:if>
+    	<echo>Build for MortgageApplication is complete</echo>
+    </target>
+    
+</project>

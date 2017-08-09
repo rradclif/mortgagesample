@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project name="Setup" basedir="." default="build" xmlns:antdbb="antlib:com.ibm.team.dbb.ant" xmlns:ac="antlib:net.sf.antcontrib">
+
+	<!-- This Ant script is used to setup the DBBz script mappings for the Mortgage Application sample 
+         Make sure to set the required Ant properties in setup.properties 
+     -->
+	
+	<property file="setup.properties"/>
+	<property name="MFS_GEN_UTILITY_MAPPING"><![CDATA[
+	{
+   	"name" : "MFSGENUtility",
+   	"description" : "MFS Gen Utility",
+   	"pattern" : [ "MortgageApplication/mfs/*.mfs" ]
+	}
+	]]></property>
+	
+	<property name="BMS_PROCESSING_MAPPING"><![CDATA[
+	{
+   	"name" : "BMSProcessing",
+   	"description" : "BMS Processing",
+   	"pattern" : [ "MortgageApplication/bms/*.bms" ]
+	} 
+	]]></property>
+		
+	<property name="COBOL_COMPILE_MAPPING"><![CDATA[
+	{
+	"name" : "CobolCompile",
+	"description" : "Cobol Compile",
+	"pattern" : [ "MortgageApplication/cobol/epsmlist.cbl", "MortgageApplication/cobol/epsnbrvl.cbl" ]
+	} 
+	]]></property>
+	
+	<property name="COBOL_COMPILE_LINK_MAPPING"><![CDATA[
+	{
+   	"name" : "CobolCompileLink",
+   	"description" : "Cobol Compile and Link",
+   	"pattern" : [ "MortgageApplication/cobol/epsmpmt.cbl" ]
+	}
+	]]></property>
+	
+	<property name="COBOL_COMPILE_CICS_LINK_MAPPING"><![CDATA[	
+	{
+   	"name" : "CobolCompileCICSLink",
+   	"description" : "Cobol Compile with CICS and Link",
+   	"pattern" : [ "MortgageApplication/cobol_cics/*.cbl" ]
+	}
+	]]></property>
+	
+	<property name="COBOL_COMPILE_CICS_DB2_LINK_MAPPING"><![CDATA[
+	{
+   	"name" : "CobolCompileCICSDB2Link",
+   	"description" : "Cobol Compile with CICS, DB2 and Link",
+   	"pattern" : [ "MortgageApplication/cobol_cics_db2/*.cbl" ]
+	} 
+	]]></property>
+	
+	<property name="LINK_EDIT_MAPPING"><![CDATA[
+	{
+   	"name" : "LinkEdit",
+   	"description" : "Link Edit",
+   	"pattern" : [ "MortgageApplication/link/*.lnk" ]
+	}
+	]]></property>
+	
+
+		
+	<target name="scriptMappings">
+		<echo>Running the DBBz setup script for Mortgage Application</echo>
+		
+		<echo>Create MFS gen utility script mappings</echo>
+    	<antdbb:http url="${DBB_URL}/rest/scriptMapping" statusCodeProperty="CREATE_STATUS" authentication="BASIC" userId="${DBB_ID}" password="${DBB_PW}" forceSSLTrusted="true" method="POST" postContents="${MFS_GEN_UTILITY_MAPPING}">
+    	   <antdbb:header name="Content-Type" value="application/json"/>
+    	</antdbb:http>
+    	<fail message="Create MFS gen utility script mappings failed with an HTTP status: ${CREATE_STATUS}">
+    	  <condition>
+    	  	<or>
+    	      <equals arg1="${CREATE_STATUS}" arg2="400"/>
+    	  	  <ac:isgreaterthan arg1="${CREATE_STATUS}" arg2="400"/>
+    	  	</or>	
+    	  </condition>
+    	</fail>
+
+		<echo>Create BMS processing script mappings</echo>
+    	<antdbb:http url="${DBB_URL}/rest/scriptMapping" statusCodeProperty="CREATE_STATUS" authentication="BASIC" userId="${DBB_ID}" password="${DBB_PW}" forceSSLTrusted="true" method="POST" postContents="${BMS_PROCESSING_MAPPING}">
+    	   <antdbb:header name="Content-Type" value="application/json"/>
+    	</antdbb:http>
+	    <fail message="Create BMS processing script mappings failed with an HTTP status: ${CREATE_STATUS}">
+	      <condition>
+	      	<or>
+	          <equals arg1="${CREATE_STATUS}" arg2="400"/>
+	      	  <ac:isgreaterthan arg1="${CREATE_STATUS}" arg2="400"/>
+	      	</or>	
+	      </condition>
+	    </fail>			
+    	    	
+		<echo>Create COBOL compile script mappings</echo>
+    	<antdbb:http url="${DBB_URL}/rest/scriptMapping" statusCodeProperty="CREATE_STATUS" authentication="BASIC" userId="${DBB_ID}" password="${DBB_PW}" forceSSLTrusted="true" method="POST" postContents="${COBOL_COMPILE_MAPPING}">
+    	   <antdbb:header name="Content-Type" value="application/json"/>
+    	</antdbb:http>
+		<fail message="Create COBOL compile script mappings failed with an HTTP status: ${CREATE_STATUS}">
+		   <condition>
+		     <or>
+			   <equals arg1="${CREATE_STATUS}" arg2="400"/>
+			   <ac:isgreaterthan arg1="${CREATE_STATUS}" arg2="400"/>
+			 </or>	
+		   </condition>
+		</fail>
+
+		<echo>Create COBOL compile link edit script mappings</echo>
+    	<antdbb:http url="${DBB_URL}/rest/scriptMapping" statusCodeProperty="CREATE_STATUS" authentication="BASIC" userId="${DBB_ID}" password="${DBB_PW}" forceSSLTrusted="true" method="POST" postContents="${COBOL_COMPILE_LINK_MAPPING}">
+    	   <antdbb:header name="Content-Type" value="application/json"/>
+    	</antdbb:http>
+		<fail message="Create COBOL compile link edit script mappings failed with an HTTP status: ${CREATE_STATUS}">
+	       <condition>
+			 <or>
+			   <equals arg1="${CREATE_STATUS}" arg2="400"/>
+			   <ac:isgreaterthan arg1="${CREATE_STATUS}" arg2="400"/>
+			 </or>	
+		   </condition>
+		</fail>
+    	
+		<echo>Create COBOL compile CICS link edit script mappings</echo>
+    	<antdbb:http url="${DBB_URL}/rest/scriptMapping" statusCodeProperty="CREATE_STATUS" authentication="BASIC" userId="${DBB_ID}" password="${DBB_PW}" forceSSLTrusted="true" method="POST" postContents="${COBOL_COMPILE_CICS_LINK_MAPPING}">
+    	   <antdbb:header name="Content-Type" value="application/json"/>
+    	</antdbb:http>
+		<fail message="Create COBOL compile CICS link edit script mappings failed with an HTTP status: ${CREATE_STATUS}">
+	       <condition>
+			 <or>
+			   <equals arg1="${CREATE_STATUS}" arg2="400"/>
+			   <ac:isgreaterthan arg1="${CREATE_STATUS}" arg2="400"/>
+			 </or>	
+		   </condition>
+		</fail>
+    	
+		<echo>Create COBOL compile CICS DB2 link edit script mappings</echo>
+    	<antdbb:http url="${DBB_URL}/rest/scriptMapping" statusCodeProperty="CREATE_STATUS" authentication="BASIC" userId="${DBB_ID}" password="${DBB_PW}" forceSSLTrusted="true" method="POST" postContents="${COBOL_COMPILE_CICS_DB2_LINK_MAPPING}">
+    	   <antdbb:header name="Content-Type" value="application/json"/>
+    	</antdbb:http>
+		<fail message="Create COBOL compile CICS DB2 link edit script mappings failed with an HTTP status: ${CREATE_STATUS}">
+	       <condition>
+			 <or>
+			   <equals arg1="${CREATE_STATUS}" arg2="400"/>
+			   <ac:isgreaterthan arg1="${CREATE_STATUS}" arg2="400"/>
+			 </or>	
+		   </condition>
+		</fail>
+    	
+		<echo>Create Link Edit script mappings</echo>
+    	<antdbb:http url="${DBB_URL}/rest/scriptMapping" statusCodeProperty="CREATE_STATUS" authentication="BASIC" userId="${DBB_ID}" password="${DBB_PW}" forceSSLTrusted="true" method="POST" postContents="${LINK_EDIT_MAPPING}">
+    	   <antdbb:header name="Content-Type" value="application/json"/>
+    	</antdbb:http>
+    	<fail message="Create Link Edit script mappings failed with an HTTP status: ${CREATE_STATUS}">
+    	   <condition>
+    	      <or>
+    		    <equals arg1="${CREATE_STATUS}" arg2="400"/>
+    			<ac:isgreaterthan arg1="${CREATE_STATUS}" arg2="400"/>
+    		  </or>	
+    		</condition>
+    	</fail>
+	
+	</target>
+	
+	<target name="build" depends="scriptMappings"/>
+	
+</project>

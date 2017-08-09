@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<project name="MFSGENUtility" basedir="." default="MFSGENUtility_build" xmlns:antdbb="antlib:com.ibm.team.dbb.ant" xmlns:ac="antlib:net.sf.antcontrib">
+    <!-- Expected passed in Ant properties:
+         <property name="WORK_DIR"/>
+         <property name="HLQ"/>
+         <property name="SRC_DIR"/>
+         <property name="DBB_BUILD_URL"/>
+         <property name="DBB_ID"/>
+         <property name="DBB_PW"/>   -->
+	
+	<!-- DBB Script Mapping name for this script.  Used to download list of files for this script to build. -->
+	<property name="MAPPING_NAME" value="MFSGENUtility"/>
+	
+	<!-- The script input file that contains the files this script is to build -->
+	<property name="INPUT_FILE" value="${WORK_DIR}/mfsgenUtility.txt"/>
+	
+	<!-- Default BPXWDYN creation options for temporary datasets -->
+	<property name="TEMP_DS_ALLOC_INFO" value="tracks space(5,5) unit(vio) new" />
+	
+	<!-- The maximum return code value allowed for this build script -->
+	<property name="maxRC" value="8"/>
+		
+	<!-- This target gets the build input list for this build script -->
+	<target name="MFSGENUtility_initialize">
+		<echo>Starting the build script for ${MAPPING_NAME}</echo>
+
+		<echo>Make REST call to get input list for the ${MAPPING_NAME} build script</echo>
+		<antdbb:http url="${DBB_BUILD_URL}/inputList?script=${MAPPING_NAME}" statusCodeProperty="GET_STATUS" authentication="${HTTP_AUTH}" userId="${DBB_ID}" password="${DBB_PW}" outputFile="${INPUT_FILE}" forceSSLTrusted="true" method="GET">
+			<antdbb:header name="accept" value="text/plain"/>
+	    </antdbb:http>
+		<!-- Test HTTP reponse status and issue appropriate message -->
+		<ac:if>
+    	  	<or>
+    	      <equals arg1="${GET_STATUS}" arg2="400"/>
+    	  	  <ac:isgreaterthan arg1="${GET_STATUS}" arg2="400"/>
+    	  	</or>
+			<ac:then>
+				<echo>Get input list failed with an HTTP status: ${GET_STATUS}</echo>
+				<echo>HTTP status 500 may indicate that there is no script mappings for ${MAPPING_NAME}</echo>
+			</ac:then>
+			<ac:else>
+				<echo>Input list was successfully retrieved and stored in file ${INPUT_FILE}</echo>
+			</ac:else>
+		</ac:if>
+		
+		<!-- Load file contents into Ant property for iteration -->
+		<loadfile property="INPUT_LIST" srcFile="${INPUT_FILE}" failonerror="false"/>
+	    <condition property="HAS_INPUT">
+	       <isset property="INPUT_LIST"/>
+	    </condition>
+		
+		<!-- Comment on contents of input file -->
+		<ac:if>
+			<isset property="INPUT_LIST"/>
+			<ac:then>
+				<echo>Contents of file ${INPUT_FILE}:</echo>
+				<echo>${INPUT_LIST}</echo>
+			</ac:then>
+			<ac:else>
+				<echo>No input file retrieved so skipping ${MAPPING_NAME}_build task</echo>
+			</ac:else>
+		</ac:if>
+
+  	</target>
+  	
+	<!-- This target starts the build for this script.  It only builds if there is an input list -->
+  	<target name="MFSGENUtility_build" depends="MFSGENUtility_initialize" if="HAS_INPUT">
+  		<echo>Begin iterating through the ${MAPPING_NAME} input list</echo>
+		<ac:for list="${INPUT_LIST}" param="file" delimiter="${line.separator}">
+  			<sequential>
+  				<echo>Building file @{file}</echo>
+     			<compile dsn="${HLQ}.MFS" file="@{file}" />
+		 		<echo>Finished building file @{file}</echo>
+  			</sequential>
+		</ac:for>	
+  		<echo>${MAPPING_NAME} build script complete</echo>
+  	</target>	
+
+	<!-- This macrodef invoke the compilers -->
+	<macrodef name="compile">
+		<attribute name="dsn"/>	
+		<attribute name="file"/>			
+		<sequential>
+		    <local name="rc"/>
+			<local name="member"/>
+			
+			<echo>Creating the PDS member name from HFS file</echo>
+			<antdbb:memberName file="@{file}" property="member" />
+			<echo>@{file} --> ${member}</echo>
+			
+			<echo>Copying source file ${SRC_DIR}/@{file} to @{dsn}(${member}) for compilation</echo>
+			<antdbb:copyToPDS file="${SRC_DIR}/@{file}" dsn="@{dsn}" member="${member}"/>
+			
+			<!-- run multiple mvsexec statements in a job to handle passed DDs-->
+		 	<antdbb:job>
+		 		
+		 		<echo>Executing MFS Language Utility - Phase 1</echo>
+				<antdbb:mvsexec pgm="DFSUPAA0" parm="NOXREF,NOCOMP,NOSUBS,NODIAG,NOCOMPRESS,LINECNT=55,STOPRC=8,DEVCHAR=I" ddnames="" attachx="true" statusProperty="rc">	
+					<antdbb:dd name="SYSIN" dsn="@{dsn}(${member})" options="shr" />
+					<antdbb:dd name="REFIN" dsn="${REFERAL}" options="shr" />
+					<antdbb:dd name="REFOUT" dsn="&amp;&amp;TEMPPDS" options="${TEMP_DS_ALLOC_INFO} dir(5) lrecl(80) recfm(f,b)" />
+					<antdbb:dd name="REFRD" dsn="${REFERAL}" options="shr" />
+					<antdbb:dd name="SYSTEXT" options="${TEMP_DS_ALLOC_INFO}" />
+					<antdbb:dd name="SYSPRINT" options="${TEMP_DS_ALLOC_INFO}" />
+					<antdbb:dd name="SEQBLKS" dsn="&amp;&amp;SEQBLK" options="${TEMP_DS_ALLOC_INFO}" pass="true" />
+					<antdbb:dd name="SYSLIB" dsn="${SDFSMAC}" options="shr" />
+					<antdbb:dd name="TASKLIB" dsn="${SDFSRESL}" options="shr" />
+					
+					<!-- save the output log to HFS -->
+					<antdbb:copyToHFS dd="SYSPRINT" destination="${WORK_DIR}/logs/${member}.log" overwrite="true" encoding="UTF-8"/>
+				</antdbb:mvsexec>		 		
+		 		
+		 		<!-- test return code from exec command -->
+				<fail message="Return code ${rc} from compiling @{file} exceeded maxRC ${maxRC}">
+				  <condition>					   
+						<ac:isgreaterthan arg1="${rc}" arg2="${maxRC}"/>
+				  </condition>
+			    </fail>
+		 		<echo>Return code from MFS Language Utility - Phase 1 was ${rc}</echo>
+			    
+		 		<echo> Executing MFS Language Utility - Phase 2</echo>
+				<antdbb:mvsexec pgm="DFSUNUB0" parm="TEST" ddnames="" attachx="true" statusProperty="rc">	
+					<antdbb:dd name="UTPRINT" options="${TEMP_DS_ALLOC_INFO}" />
+					<antdbb:dd name="FORMAT" dsn="${HLQ}.TFORMAT" options="shr" />
+					<antdbb:dd name="TASKLIB" dsn="${SDFSRESL}" options="shr" />
+					
+					<!-- save the output log to HFS -->
+					<antdbb:copyToHFS dd="UTPRINT" destination="${WORK_DIR}/logs/${member}.log" overwrite="false" encoding="UTF-8"/>
+				</antdbb:mvsexec>		 		
+		 		
+		 		<!-- test return code from exec command -->
+				<fail message="Return code ${rc} from compiling @{file} exceeded maxRC ${maxRC}">
+				  <condition>					   
+						<ac:isgreaterthan arg1="${rc}" arg2="${maxRC}"/>
+				  </condition>
+			    </fail>
+		 		<echo>Return code from MFS Language Utility - Phase 2 was ${rc}</echo>
+			</antdbb:job>
+		</sequential>
+	</macrodef>
+
+</project>
