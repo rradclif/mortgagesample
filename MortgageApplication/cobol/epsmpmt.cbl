@@ -14,6 +14,7 @@
       *    OUTPUT:
       *       MONTHLY PAYMENT
       *
+      *   New update for testing git
       *    (C) 2008 IBM - Jim Hildner
        ENVIRONMENT DIVISION.
        CONFIGURATION SECTION.
