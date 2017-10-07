@@ -8,3 +8,9 @@ MortgageApplication/cobol_cics/epscsmrt.cbl
 MortgageApplication/cobol_cics_db2/epscmort.cbl
 MortgageApplication/link/epsmlist.lnk
 MortgageApplication/mfs/dfsiv1.mfs
+MortgageApplication/copybook/epsmortf.cpy
+MortgageApplication/copybook/epsmtcom.cpy
+MortgageApplication/copybook/epsmtinp.cpy
+MortgageApplication/copybook/epsmtout.cpy
+MortgageApplication/copybook/epsnbrpm.cpy
+MortgageApplication/copybook/epspdata.cpy
