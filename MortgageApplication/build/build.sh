@@ -19,7 +19,7 @@
 ###############################################################################################
 
 # Set the DBB bin directory
-DBB_HOME=
+DBB_HOME=/shareuser/radclif/dbb
 
 # Shell script arguments (can use to set defaults)
 BUILD_FILE=
