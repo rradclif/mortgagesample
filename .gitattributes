@@ -6,7 +6,3 @@
 *.bnd working-tree-encoding=ibm-1047 git-encoding=utf-8
 *.lnk working-tree-encoding=ibm-1047 git-encoding=utf-8
 *.rex working-tree-encoding=ibm-1047 git-encoding=utf-8
-*.txt working-tree-encoding=ibm-1047 git-encoding=utf-8
-*.groovy working-tree-encoding=ibm-1047 git-encoding=utf-8
-*.sh working-tree-encoding=ibm-1047 git-encoding=utf-8
-*.properties working-tree-encoding=ibm-1047 git-encoding=utf-8
