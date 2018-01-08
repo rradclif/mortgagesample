@@ -1,170 +1,136 @@
 import com.ibm.team.dbb.build.*
 import com.ibm.team.dbb.build.report.*
-import com.ibm.team.dbb.build.html.*
 import com.ibm.team.dbb.repository.*
 import com.ibm.team.dbb.dependency.*
 import groovy.time.*
 
-//*
-// Initialize Build
-//*
-def startTime = new Date()
-println("** Build start at $startTime")
-
-// load optional command line arguments
-def propDir = System.getProperty("propDir")
-def workDir = System.getProperty("workDir")
-def buildFile = System.getProperty("buildFile")
-def buildList = System.getProperty("buildList")
-def logEncoding = System.getProperty("logEnc")
-
-// load property files
+/**
+ * This is the main build script for the Mortgage Application.
+ *
+ * usage: build.groovy [options] buildfile
+ * 
+ * buildFile:  Relative path (from sourceDir) of the file to build. If file
+ * is *.txt then assumed to be buildlist file containing a list of relative
+ * path files to build. Build list file can be absolute or relative (from
+ * sourceDir) path.
+ * 
+ * options:
+ *  -c,--collection <name>        Name of the dependency data collection
+ *  -C, --clean                   Deletes the dependency collection and build result group 
+ *                                from the DBB repository then terminates (skips build)
+ *  -e,--logEncoding <encoding>   Encoding of output logs. Default is EBCDIC
+ *  -E,--errPrefix <uniqueId>     Unique id used for IDz error feedback datasets
+ *  -f,--propFile <file>          Absolute path to a default property file
+ *  -h,--help                     Prints this message
+ *  -i,--id <id>                  DBB repository id
+ *  -p,--pw <password>            DBB password
+ *  -P,--pwFile <file>            Absolute path to file containing DBB
+ *                                password
+ *  -q,--hlq <hlq>                High level qualifier for partition data
+ *                                sets
+ *  -r,--repo <url>               DBB repository URL
+ *  -s,--sourceDir <dir>          Absolute path to source directory
+ *  -t,--team <hlq>               Team build hlq for user build syslib concatenations
+ *  -u,--userBuild                Flag indicating running a user build
+ *  -w,--workDir <dir>            Absolute path to the build output directory
+ *  
+ * All command line options can be provided in a properties file passed in
+ * using the -f, --propFile <file> argument. Use the argument long form name
+ * for the properties name. Property file properties are used as default property
+ * values and can be overridden by command line options
+ */
+ 
+// check to see if there is a ./build.properties to load
 def properties = BuildProperties.getInstance()
+def scriptDir = new File(getClass().protectionDomain.codeSource.location.path).parent
+def buildPropFile = new File("$scriptDir/build.properties")
+if (buildPropFile.exists())
+   BuildProperties.load(buildPropFile)
 
-// overriding the property directory allows startup property customization
-if (!propDir) { propDir = "." }
+// load the Tools.groovy utility script
+File sourceFile = new File("$scriptDir/Tools.groovy")
+Class groovyClass = new GroovyClassLoader(getClass().getClassLoader()).parseClass(sourceFile)
+GroovyObject tools = (GroovyObject) groovyClass.newInstance()
 
-// startup.properties contains user specific (sandbox) properties
-properties.load(new File("$propDir/startup.properties"))
-// datasets.properties contains system specific PDS names used by Mortgage Application build
-properties.load(new File("$properties.sourceDir/MortgageApplication/build/datasets.properties"))
-// file.properties contains file specific properties like script mappings and CICS/DB2 content flags
-properties.load(new File("$properties.sourceDir/MortgageApplication/build/file.properties"))
+// start build
+def startTime = new Date()
+properties.startTime = startTime.format("yyyyMMdd.hhmmss.mmm")
+println("** Build start at $properties.startTime")
 
-// override log encoding from command line argument (this allows Jenkins to set it to UTF-8)
-if (logEncoding) { properties.logEncoding = logEncoding }
-
-// create unique build directory in work directory
-if (workDir) { properties.workDir = workDir }
-def ts = startTime.format("yyyyMMdd.hhmm")
-properties.buildDir = "$properties.workDir/build.$ts" as String
-new File(properties.buildDir).mkdirs()
-println("** Build output will be in $properties.buildDir")
-
-// create datasets if necessary
-def srcOptions = "cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library) msg(1)"
-def loadOptions = "cyl space(1,1) dsorg(PO) recfm(U) blksize(32760) dsntype(library) msg(1)" 
-def srcDatasets = ["COBOL", "COPYBOOK", "OBJ", "BMS", "DBRM", "LINK", "MFS"]
-def loadDatasets = ["LOAD", "TFORMAT"]
-srcDatasets.each { dataset ->
-	new CreatePDS().dataset("${properties.hlq}.$dataset").options(srcOptions).create()
-}
-
-loadDatasets.each { dataset ->
-	new CreatePDS().dataset("${properties.hlq}.$dataset").options(loadOptions).create()
-}
-
-// initialize build report
-def buildReport = BuildReportFactory.createDefaultReport()
-
-// print out build properties (good for debugging)
+// load/set build properties from command line arguments
+tools.loadProperties(args)
 println("** Build properties at startup:")
 println(properties.list())
 
+// initialize build artifacts
+tools.initializeBuildArtifacts()
 
-//*
-// Load list of files to build/scan
-//*
-def files = []
+// create workdir (if necessary)
+new File(properties.workDir).mkdirs()
+println("** Build output will be in $properties.workDir")
 
-// check to see if a file/list was passed in to build
-if (buildFile) {
-	println("** Single file build : $buildFile")
-	files = [buildFile]	
+// create datasets (if necessary)
+tools.createDatasets()
+
+// create build list from input build file
+def buildList = tools.getBuildList()
+
+// scan all the files in the process list for dependency data (team build only)
+if (!properties.userBuild) { 
+	println("** Scan the build list to collect dependency data")
+	def scanner = new DependencyScanner()
+	def logicalFiles = [] as List<LogicalFile>
+	
+	buildList.each { file ->
+    	println("Scanning $file")
+    	def logicalFile = scanner.scan(file, properties.sourceDir)
+    	logicalFiles.add(logicalFile)
+	}
+
+	println("** Store the dependency data in repository collection '$properties.collection'")
+	// create collection if needed
+	def repo = tools.getDefaultRepositoryClient()
+	if (!repo.collectionExists(properties.collection))
+    	repo.createCollection(properties.collection) 
+    	   
+	repo.saveLogicalFiles(properties.collection, logicalFiles);
+	println(repo.getLastStatus())
 }
-else if (buildList) {
-	println("** Building files listed in $buildList")
-       	files = new File(buildList) as List<String>
-       
-}       
-else { // otherwise build the Mortgage Application file list
-	buildList = "$properties.sourceDir/MortgageApplication/build/files.txt"
-       	println("** Building files listed in $buildList")
-      	files = new File(buildList) as List<String>
-}
 
-
-//*
-// Scan the build files to collect and store new/updated dependency data
-//*
-println("** Scan the build list to collect dependency data")
-def scanner = new DependencyScanner()
-def logicalFiles = [] as List<LogicalFile>
-files.each { file ->
-    println("Scanning $file")
-    def logicalFile = scanner.scan(file, properties.sourceDir)
-    logicalFiles.add(logicalFile)
-}
-
-println("** Store the dependency data in repository collection '$properties.collection'")
-def repo = new RepositoryClient().url(properties.url)
-                                 .userId(properties.id)
-                                 .passwordFile(new File("$properties.sourceDir/$properties.pwFile"))
-                                 .forceSSLTrusted(true)
-
-// create collection if needed
-if (!repo.collectionExists(properties.collection))
-    repo.createCollection(properties.collection)
-    
-repo.saveLogicalFiles(properties.collection, logicalFiles);
-println(repo.getLastStatus())
-
-
-//*
-// Build programs in script order
-//*
-println("** Invoking scripts according to build order")
-def buildCounter = 0
+// build programs by invoking the appropriate build script
+def processCounter = 0
 def buildOrder = ["BMSProcessing", "Compile", "LinkEdit", "CobolCompile"]
-buildOrder.each { script ->
-        // Use the ScriptMappings class to get the files mapped to the build script
-	def buildFiles = ScriptMappings.getMappedList(script, files)
-	def scriptFileName = "$properties.sourceDir/MortgageApplication/build/${script}.groovy"
-	buildFiles.each { file ->
-	        run(new File(scriptFileName), [file] as String[])
-		buildCounter++
-	}
-}
-
 // optionally execute IMS MFS builds
-if (properties.BUILD_MFS.toBoolean()) {
-	def script = "MFSGENUtility"
-	def buildFiles = ScriptMappings.getMappedList(script, files)
-	def scriptFileName = "$properties.sourceDir/MortgageApplication/build/${script}.groovy"
+if (properties.BUILD_MFS.toBoolean()) 
+	buildOrder << "MFSGENUtility"
+
+println("** Invoking build scripts according to build order: ${buildOrder[1..-1].join(', ')}")
+buildOrder.each { script ->
+    // Use the ScriptMappings class to get the files mapped to the build script
+	def buildFiles = ScriptMappings.getMappedList(script, buildList)
+	def scriptName = "$properties.sourceDir/MortgageApplication/build/${script}.groovy"
 	buildFiles.each { file ->
-		run(new File(scriptFileName), [file] as String[])
-		buildCounter++
+	    run(new File(scriptName), [file] as String[])
+		processCounter++
 	}
 }
 
+// generate build report
+def (File jsonFile, File htmlFile) = tools.generateBuildReport()
 
-//*
-// Save Build Report artifacts.
-//*
-def buildReportEncoding = "UTF-8"
-def jsonOutputFile = new File("${properties.buildDir}/BuildReport.json")
+// finalize build result
+tools.finalizeBuildResult(jsonReport:jsonFile, htmlReport:htmlFile, filesProcessed:processCounter)
 
-// Save build report in JSON format.
-buildReport.save(jsonOutputFile, buildReportEncoding)
 
-// Save a html file to render the json build report.
-def htmlOutputFile = new File("${properties.buildDir}/BuildReport.html")
-def htmlTemplate = null  // Use default HTML template.
-def css = null       // Use default theme.
-def renderScript = null  // Use default rendering.                       
-def transformer = HtmlTransformer.getInstance()
-transformer.transform(jsonOutputFile, htmlTemplate, css, renderScript, htmlOutputFile, buildReportEncoding)
-
-//*
-// Print end message
-//*
+// Print end build message
 def endTime = new Date()
 def duration = TimeCategory.minus(endTime, startTime)
+def state = (properties.error) ? "ERROR" : "CLEAN"
 println("** Build finished at $endTime")
-println("** Total files built : $buildCounter")
+println("** Build State : $state")
+println("** Total files processed : $processCounter")
 println("** Total build time  : $duration")
-	
 
-
-
-
+// if error signal process error for Jenkins to record failed build
+if (properties.error)
+   System.exit(1)

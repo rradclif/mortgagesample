@@ -12,62 +12,41 @@ def cobolPDS = "${properties.hlq}.COBOL"
 def copybookPDS = "${properties.hlq}.COPYBOOK"
 def objectPDS = "${properties.hlq}.OBJ"
 def member = CopyToPDS.createMemberName(file)
-def maxRC = 8
+def logFile = new File("${properties.workDir}/${member}.log")
+
+// create a reference to the Tools.groovy utility script
+File scriptFile = new File("$properties.sourceDir/MortgageApplication/build/Tools.groovy")
+Class groovyClass = new GroovyClassLoader(getClass().getClassLoader()).parseClass(scriptFile)
+GroovyObject tools = (GroovyObject) groovyClass.newInstance()
 
 // define the BPXWDYN options for allocated temporary datasets
-def tempCreateOptions = "tracks space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new"
+def tempCreateOptions = "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new"
 
-//*
 // copy program to PDS 
-//*
 println("Copying ${properties.sourceDir}/$file to $cobolPDS($member)")
-def copyProgram = new CopyToPDS().file(new File("${properties.sourceDir}/$file"))
-                                 .dataset(cobolPDS)
-                                 .member(member)
-copyProgram.copy()
+new CopyToPDS().file(new File("${properties.sourceDir}/$file")).dataset(cobolPDS).member(member).execute()
 
-
-//*
 //resolve program dependencies and copy to PDS
-//*
 println("Resolving dependencies for file $file and copying to $copybookPDS")
-def repoClient = new RepositoryClient().url(properties.url)
-                                       .userId(properties.id)
-                                       .passwordFile(new File("$properties.sourceDir/$properties.pwFile"))
-                                       .forceSSLTrusted(true)
-def rule = new ResolutionRule().library("SYSLIB")
-                               .path(new DependencyPath().collection(properties.collection)
-                                                         .sourceDir(properties.sourceDir)
-                                                         .directory("MortgageApplication/copybook"))	
-def resolver = new DependencyResolver().repositoryClient(repoClient)
-                                       .collection(properties.collection)
-                                       .sourceDir(properties.sourceDir)
-                                       .file(file)
-                                       .rule(rule)
+def resolver = tools.getDefaultDependencyResolver(file)
 def deps = resolver.resolve()
+new CopyToPDS().dependencies(deps).dataset(copybookPDS).execute()
 
-// copy the dependencies to PDS
-def copyDependencies = new CopyToPDS().dependencies(deps).dataset(copybookPDS)
-copyDependencies.copy()
-     
-
-//*
 // compile the build file
-//*
 println("Compiling build file $file")
-
+def logicalFile = resolver.getLogicalFile()
 
 // create the appropriate parm list
 def parms = "LIB"
-if (properties.getFileProperty("hasCICS", file).toBoolean()) {
-    parms = "LIB,DYNAM,CICS"
-}    
+if (logicalFile.isCICS()) {
+    parms = "$parms,DYNAM,CICS"
+} 
+if (properties.errPrefix) {
+    parms = "$parms,ADATA,EX(ADX(ELAXMGUX))"
+}   
 
 // define the MVSExec command to compile the program
-def compile = new MVSExec().file(file)
- 			   .pgm("IGYCRCTL")
-                           .parm(parms)
-                           .attachx(true)
+def compile = new MVSExec().file(file).pgm("IGYCRCTL").parm(parms).attachx(true)
 
 // add DD statements to the MVSExec command
 compile.dd(new DDStatement().name("SYSIN").dsn("$cobolPDS($member)").options("shr").report(true))
@@ -94,26 +73,46 @@ compile.dd(new DDStatement().name("SYSMDECK").options(tempCreateOptions))
 
 // add a syslib to the MVSExec command with optional CICS concatenation
 compile.dd(new DDStatement().name("SYSLIB").dsn(copybookPDS).options("shr"))
-if (properties.getFileProperty("hasCICS", file).toBoolean()) {
+if (properties.team) {
+       // for user builds concatenate the team build copbook pds
+       compile.dd(new DDStatement().dsn("${properties.team}.COPYBOOK").options("shr"))
+}
+
+if (logicalFile.isCICS()) {
     // create a DD statement without a name to concatenate to the last named DD added to the MVSExec
     compile.dd(new DDStatement().dsn(properties.SDFHCOB).options("shr"))
 }
 
-// add a tasklib to the MVSExec command with optional CICS concatenation
+// add a tasklib to the MVSExec command with optional CICS and IDz concatenation
 compile.dd(new DDStatement().name("TASKLIB").dsn(properties.SIGYCOMP).options("shr"))
-if (properties.getFileProperty("hasCICS", file).toBoolean()) {
+if (logicalFile.isCICS()) {
     // create a DD statement without a name to concatenate to the last named DD added to the MVSExec
     compile.dd(new DDStatement().dsn(properties.SDFHLOAD).options("shr"))
 }
+if (properties.SFELLOAD) {
+    compile.dd(new DDStatement().dsn(properties.SFELLOAD).options("shr"))  
+}
+
+// add IDz User Build Error Feedback DDs
+if (properties.errPrefix) {
+    compile.dd(new DDStatement().name("SYSADATA").options("DUMMY"))
+    compile.dd(new DDStatement().name("SYSXMLSD").dsn("${properties.hlq}.${properties.errPrefix}.SYSXMLSD.XML").options("mod keep"))
+}
+
+
+// add IDz User Build Error Feedback DDs
+if (properties.errPrefix) {
+    compile.dd(new DDStatement().name("SYSADATA").options("DUMMY"))
+    compile.dd(new DDStatement().name("SYSXMLSD").dsn("${properties.hlq}.${properties.errPrefix}.SYSXMLSD.XML").options("mod keep"))
+}
+
 
 // add a copy command to the MVSExec command to copy the SYSPRINT from the temporary dataset to an HFS log file
-compile.copy(new CopyToHFS().ddName("SYSPRINT").file(new File("${properties.buildDir}/${member}.log")).encoding(properties.logEncoding))
+compile.copy(new CopyToHFS().ddName("SYSPRINT").file(logFile).encoding(properties.logEncoding))
 
 // execute the MVSExec compile command
 def rc = compile.execute()
-if (rc > maxRC)
-   throw new BuildException("Return code $rc from compiling $file exceeded maxRC $maxRC")
+
+// update build result
+tools.updateBuildResult(file:"$file", rc:rc, maxRC:4, log:logFile)
 	
-
-
-  
